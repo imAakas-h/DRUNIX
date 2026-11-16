@@ -5,7 +5,19 @@ import { Button, Card, Field } from '../components/Ui';
 export default function Login() {
   const { login } = useAuth();
   const [id, setId] = useState('OPERATOR'); const [pw, setPw] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
-  const submit = async (e) => { e.preventDefault(); setBusy(true); setErr(''); const ok = await login(id, pw).catch(() => false); setBusy(false); if (!ok) setErr('Wrong identity or password.'); };
+  const submit = async (e) => {
+    e.preventDefault(); setBusy(true); setErr('');
+    const result = await login(id, pw).catch((error) => ({ ok: false, error: error.message }));
+    setBusy(false);
+    if (!result.ok) {
+      const message = {
+        SESSION_SECRET_REQUIRED: 'Server session security is not configured. Contact the operator.',
+        IDENTITY_PASSWORD_NOT_CONFIGURED: 'This identity has no server-side password configured. Contact the operator.',
+        IDENTITY_PASSWORD_TOO_WEAK: 'The configured identity password does not meet the minimum length. Contact the operator.',
+      }[result.error];
+      setErr(message || 'Wrong identity or password.');
+    }
+  };
   return (
     <div className="max-w-sm mx-auto mt-[12vh] px-4">
       <Card><h1 className="text-xl font-semibold">Rasid</h1><p className="text-mute text-sm mb-4">One receivable. One verifiable position record.</p>

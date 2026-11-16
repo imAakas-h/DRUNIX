@@ -3,16 +3,20 @@
   "version": "0.1.0",
   "description": "Rasid: post-discount factoring position ledger on Drunix (Hyperledger Fabric v2.5 model)",
   "private": true,
+  "engines": {
+    "node": ">=22.9.0"
+  },
   "scripts": {
-    "start": "node server/index.js",
-    "dev": "LEDGER_MODE=dev node server/index.js",
-    "seed": "node scripts/seed.js",
+    "start": "node --env-file-if-exists=.env scripts/start-dev.js",
+    "start:demo": "node --env-file-if-exists=.env scripts/start-dev.js",
+    "dev": "node --env-file-if-exists=.env scripts/start-dev.js",
+    "seed": "node --env-file-if-exists=.env scripts/seed.js",
     "test": "node --test test/*.test.js",
     "test:chaincode": "cd chaincode/rasid && go test ./rules",
-    "verify:concurrency": "node scripts/verify-concurrency.js",
-    "benchmark": "node scripts/benchmark.js",
-    "test:drunix": "LEDGER_MODE=drunix node --test test/*.test.js",
-    "build:web": "cd web && npm install && npm run build",
+    "verify:concurrency": "node --env-file-if-exists=.env scripts/verify-concurrency.js",
+    "benchmark": "node --env-file-if-exists=.env scripts/benchmark.js",
+    "test:drunix": "node --env-file-if-exists=.env scripts/test-drunix.js",
+    "build:web": "npm --prefix web run build",
     "test:e2e": "cd web && npx playwright test"
   },
   "dependencies": {

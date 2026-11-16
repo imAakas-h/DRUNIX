@@ -33,7 +33,7 @@ export default function ReceivableDetail() {
       <Card className="overflow-x-auto"><h2 className="font-semibold text-sm mb-2">Position ledger</h2>
         {!positions.length ? <Empty>No positions yet (not discounted).</Empty> : <table><thead><tr><th>Holder</th><th className="text-right">Active position</th><th className="text-right">Released</th></tr></thead><tbody>{positions.map((p) => <tr key={p.holderId}><td>{NAME[p.holderId] || p.holderId}</td><td className="text-right">{inr(p.amountPaise)}</td><td className="text-right">{inr(p.releasedPaise)}</td></tr>)}</tbody></table>}
       </Card>
-      <Card className="overflow-x-auto"><h2 className="font-semibold text-sm mb-2">On-chain event history</h2>
+      <Card className="overflow-x-auto"><h2 className="font-semibold text-sm mb-2">Ledger event history</h2>
         {au.loading && !au.data ? <Loading what="history" /> : au.error ? <ErrorBox error={au.error} /> : !au.data.onChain.length ? <Empty>No committed events.</Empty> : (
           <table><thead><tr><th>Time</th><th>Action</th><th>Actor</th><th>Details</th><th>Tx</th></tr></thead><tbody>{au.data.onChain.map((e) => <tr key={e.txId}><td className="font-mono text-xs">{new Date(e.at).toLocaleTimeString([], { hour12: false })}</td><td><OutcomeChip outcome="ACCEPTED" /> {e.action}</td><td>{e.actor}</td><td>{e.details}</td><td><Mono>{e.txId}</Mono></td></tr>)}</tbody></table>)}
       </Card>

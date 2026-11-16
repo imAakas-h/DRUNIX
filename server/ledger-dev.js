@@ -118,26 +118,33 @@ const cc = {
 };
 
 class DevLedger {
-  constructor() { this.mode = 'dev'; this.kv = new Map(); this.block = 0; }
+  constructor() { this.mode = 'dev'; this.kv = new Map(); this.lastSuccessfulTransaction = null; }
   cnOf(identity) { return identity; }
   async propose(identity, fn, args) {
     const txId = crypto.randomBytes(16).toString('hex');
     const c = new Ctx(this, this.cnOf(identity), txId);
-    if (!cc[fn]) throw new LedgerError('NETWORK_ERROR', 'UNKNOWN_FUNCTION', fn);
+    if (!cc[fn]) {
+      const error = new LedgerError('NETWORK_ERROR', 'UNKNOWN_FUNCTION', fn);
+      error.txId = txId;
+      throw error;
+    }
     try { await cc[fn](c, ...args); } catch (e) {
-      if (e.rasid) throw new LedgerError('REJECTED_CHAINCODE', e.rasid, e.message.replace(/^RASID:[A-Z_]+:\s*/, ''));
-      throw new LedgerError('NETWORK_ERROR', 'INTERNAL', e.message);
+      const error = e.rasid
+        ? new LedgerError('REJECTED_CHAINCODE', e.rasid, e.message.replace(/^RASID:[A-Z_]+:\s*/, ''))
+        : new LedgerError('NETWORK_ERROR', 'INTERNAL', e.message);
+      error.txId = txId;
+      throw error;
     }
     return { txId, reads: c.reads, writes: c.writes };
   }
   async commit(p) {
     await new Promise((r) => setImmediate(r));
     for (const [k, v] of p.reads) {
-      const cur = this.kv.get(k); if ((cur ? cur.v : 0) !== v) return { txId: p.txId, status: 'MVCC_READ_CONFLICT', blockNumber: this.block };
+      const cur = this.kv.get(k); if ((cur ? cur.v : 0) !== v) return { txId: p.txId, status: 'MVCC_READ_CONFLICT', blockNumber: null };
     }
-    this.block++;
     for (const [k, value] of p.writes) { const cur = this.kv.get(k); this.kv.set(k, { value, v: (cur ? cur.v : 0) + 1 }); }
-    return { txId: p.txId, status: 'COMMITTED', blockNumber: this.block };
+    this.lastSuccessfulTransaction = { txId: p.txId, at: new Date().toISOString() };
+    return { txId: p.txId, status: 'COMMITTED', blockNumber: null };
   }
   async query(identity, fn, args) {
     const c = new Ctx(this, this.cnOf(identity), 'query');
@@ -145,7 +152,24 @@ class DevLedger {
       throw new LedgerError('REJECTED_CHAINCODE', e.rasid || 'INTERNAL', e.message.replace(/^RASID:[A-Z_]+:\s*/, ''));
     }
   }
-  async health() { return { ok: true, mode: 'dev', detail: 'DEV ENGINE — not a Drunix network' }; }
-  reset() { this.kv.clear(); this.block = 0; }
+  async health() {
+    return {
+      ok: true,
+      mode: 'dev',
+      status: 'CONNECTED',
+      networkName: 'Local development engine',
+      channelName: null,
+      chaincodeName: 'Development mirror',
+      peerConnectionStatus: 'NOT_APPLICABLE',
+      identityAuthenticationStatus: 'NOT_APPLICABLE',
+      chaincodeAvailabilityStatus: 'NOT_APPLICABLE',
+      latestBlockNumber: null,
+      lastSuccessfulTransaction: this.lastSuccessfulTransaction,
+      lastCheckAt: new Date().toISOString(),
+      lastError: null,
+      detail: 'Local development ledger only; not a Drunix network',
+    };
+  }
+  reset() { this.kv.clear(); this.lastSuccessfulTransaction = null; }
 }
 module.exports = { DevLedger, LedgerError, cnOfPlaceholder: null };

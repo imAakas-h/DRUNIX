@@ -24,7 +24,7 @@ export default function Transfer() {
   };
   return (
     <>
-      <PageHeader title="Discount & re-discount" sub="Each action is a ledger transaction. The result below appears only after the commit verdict; balances are never updated optimistically." />
+      <PageHeader title="Discount & re-discount" sub="In Demo Mode, each operation updates the local simulated ledger. The result appears only after the simulation commit; balances are never updated optimistically." />
       {!units.length ? <Empty>No open factoring units.</Empty> : (
         <>
           <Card><div className="flex flex-wrap items-end gap-4"><Field label="Factoring unit"><select value={cur.fu.fuId} onChange={(e) => { setSp({ fu: e.target.value }); setResult(null); }}>{units.map((r) => <option key={r.fu.fuId}>{r.fu.fuId}</option>)}</select></Field>
@@ -45,7 +45,7 @@ export default function Transfer() {
                 </form>) : <p className="text-sm text-mute">You hold no active position in this unit.</p>)}
               {err && <p role="alert" className="text-amber text-sm mt-2">{err}</p>}
             </Card>)}
-          {busy && <p role="status" className="text-sm text-mute">Submitted. Waiting for endorsement, ordering and the committing peer’s validation result…</p>}
+          {busy && <p role="status" className="text-sm text-mute">Submitted to the simulation. Waiting for simulated endorsement, ordering and commit…</p>}
           <TxResult result={result} />
         </>)}
     </>

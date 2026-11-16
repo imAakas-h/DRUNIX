@@ -1,9 +1,58 @@
 {
-  "OPERATOR":    { "mspId": "Org1MSP", "certPath": "/PATH/organizations/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/signcerts", "keyPath": "/PATH/organizations/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/keystore", "peerEndpoint": "localhost:7051", "hostAlias": "peer0.org1.example.com", "tlsCertPath": "/PATH/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt" },
-  "FINANCIER_A": { "mspId": "Org1MSP", "certPath": "…/org1.example.com/users/User1@org1.example.com/msp/signcerts", "keyPath": "…/User1@org1.example.com/msp/keystore", "peerEndpoint": "localhost:7051", "hostAlias": "peer0.org1.example.com", "tlsCertPath": "…/peer0.org1.example.com/tls/ca.crt" },
-  "FINANCIER_B": { "mspId": "Org2MSP", "certPath": "…/org2.example.com/users/User1@org2.example.com/msp/signcerts", "keyPath": "…/User1@org2.example.com/msp/keystore", "peerEndpoint": "localhost:9051", "hostAlias": "peer0.org2.example.com", "tlsCertPath": "…/org2.example.com/peers/peer0.org2.example.com/tls/ca.crt" },
-  "FINANCIER_C": "same shape; a separate enrolled identity (see README: extra identities via fabric-ca). Disclosed as TEST IDENTITY.",
-  "FINANCIER_D": "same shape; separate enrolled identity",
-  "INSURER":     "same shape; separate enrolled identity",
-  "AUDITOR":     "same shape; separate enrolled identity"
+  "OPERATOR": {
+    "mspId": "${DRUNIX_OPERATOR_MSP_ID}",
+    "certPath": "${DRUNIX_OPERATOR_CERT_PATH}",
+    "keyPath": "${DRUNIX_OPERATOR_KEY_PATH}",
+    "peerEndpoint": "${DRUNIX_OPERATOR_PEER_ENDPOINT}",
+    "hostAlias": "${DRUNIX_OPERATOR_HOST_ALIAS}",
+    "tlsCertPath": "${DRUNIX_OPERATOR_TLS_CERT_PATH}"
+  },
+  "FINANCIER_A": {
+    "mspId": "${DRUNIX_FINANCIER_A_MSP_ID}",
+    "certPath": "${DRUNIX_FINANCIER_A_CERT_PATH}",
+    "keyPath": "${DRUNIX_FINANCIER_A_KEY_PATH}",
+    "peerEndpoint": "${DRUNIX_FINANCIER_A_PEER_ENDPOINT}",
+    "hostAlias": "${DRUNIX_FINANCIER_A_HOST_ALIAS}",
+    "tlsCertPath": "${DRUNIX_FINANCIER_A_TLS_CERT_PATH}"
+  },
+  "FINANCIER_B": {
+    "mspId": "${DRUNIX_FINANCIER_B_MSP_ID}",
+    "certPath": "${DRUNIX_FINANCIER_B_CERT_PATH}",
+    "keyPath": "${DRUNIX_FINANCIER_B_KEY_PATH}",
+    "peerEndpoint": "${DRUNIX_FINANCIER_B_PEER_ENDPOINT}",
+    "hostAlias": "${DRUNIX_FINANCIER_B_HOST_ALIAS}",
+    "tlsCertPath": "${DRUNIX_FINANCIER_B_TLS_CERT_PATH}"
+  },
+  "FINANCIER_C": {
+    "mspId": "${DRUNIX_FINANCIER_C_MSP_ID}",
+    "certPath": "${DRUNIX_FINANCIER_C_CERT_PATH}",
+    "keyPath": "${DRUNIX_FINANCIER_C_KEY_PATH}",
+    "peerEndpoint": "${DRUNIX_FINANCIER_C_PEER_ENDPOINT}",
+    "hostAlias": "${DRUNIX_FINANCIER_C_HOST_ALIAS}",
+    "tlsCertPath": "${DRUNIX_FINANCIER_C_TLS_CERT_PATH}"
+  },
+  "FINANCIER_D": {
+    "mspId": "${DRUNIX_FINANCIER_D_MSP_ID}",
+    "certPath": "${DRUNIX_FINANCIER_D_CERT_PATH}",
+    "keyPath": "${DRUNIX_FINANCIER_D_KEY_PATH}",
+    "peerEndpoint": "${DRUNIX_FINANCIER_D_PEER_ENDPOINT}",
+    "hostAlias": "${DRUNIX_FINANCIER_D_HOST_ALIAS}",
+    "tlsCertPath": "${DRUNIX_FINANCIER_D_TLS_CERT_PATH}"
+  },
+  "INSURER": {
+    "mspId": "${DRUNIX_INSURER_MSP_ID}",
+    "certPath": "${DRUNIX_INSURER_CERT_PATH}",
+    "keyPath": "${DRUNIX_INSURER_KEY_PATH}",
+    "peerEndpoint": "${DRUNIX_INSURER_PEER_ENDPOINT}",
+    "hostAlias": "${DRUNIX_INSURER_HOST_ALIAS}",
+    "tlsCertPath": "${DRUNIX_INSURER_TLS_CERT_PATH}"
+  },
+  "AUDITOR": {
+    "mspId": "${DRUNIX_AUDITOR_MSP_ID}",
+    "certPath": "${DRUNIX_AUDITOR_CERT_PATH}",
+    "keyPath": "${DRUNIX_AUDITOR_KEY_PATH}",
+    "peerEndpoint": "${DRUNIX_AUDITOR_PEER_ENDPOINT}",
+    "hostAlias": "${DRUNIX_AUDITOR_HOST_ALIAS}",
+    "tlsCertPath": "${DRUNIX_AUDITOR_TLS_CERT_PATH}"
+  }
 }

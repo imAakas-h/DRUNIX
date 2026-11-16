@@ -9,7 +9,8 @@ const N = Number(process.argv[2] || 10); const RUN = Date.now().toString(36);
 const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)] : null; };
 
 (async () => {
-  const L = makeLedger(); if (L.mode === 'dev') await seedParticipants(L); else await seedParticipants(L).catch(() => {});
+  const L = makeLedger();
+  await seedParticipants(L);
   const send = async (who, fn, args) => { const p = await L.propose(who, fn, args); return L.commit(p); };
   const runs = []; const lat = [];
   for (let i = 1; i <= N; i++) {
@@ -33,5 +34,6 @@ const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s.length 
   const out = { generatedAt: new Date().toISOString(), ledgerMode: L.mode, drunixEvidence: L.mode === 'drunix', runs: N, passed: runs.filter((r) => r.ok).length, attackLatencyMs: { p50: pct(lat, 0.5), p95: pct(lat, 0.95) }, environment: `${L.mode} · node ${process.version} · ${process.platform}`, details: runs };
   fs.mkdirSync('reports', { recursive: true }); const f = `reports/concurrency-${L.mode}-${RUN}.json`; fs.writeFileSync(f, JSON.stringify(out, null, 2));
   console.log(`\n${out.passed}/${N} runs satisfied "exactly one commit, totals conserved" on ${L.mode.toUpperCase()}${L.mode === 'dev' ? ' (NOT Drunix evidence)' : ''} → ${f}`);
-  process.exit(out.passed === N ? 0 : 1);
+  await L.close?.();
+  process.exitCode = out.passed === N ? 0 : 1;
 })().catch((e) => { console.error('verification could not run:', e.code || '', e.message); process.exit(2); });

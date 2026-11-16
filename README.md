@@ -3,11 +3,29 @@
 
 **One receivable. One source of truth. Every position verifiable.**
 
-Rasid is a blockchain-powered post-discount position ledger designed to establish, track, and verify ownership of discounted factoring units.
+> **Judge demo: local blockchain simulation only.** `npm run start:demo` runs the existing React/Express application against a persistent local simulation ledger. It does not connect to, deploy, repair, or submit transactions to Hyperledger Fabric, Drunix, KeyDB, or YugabyteDB. Explorer blocks, endorsements, ordering, transaction IDs, and commits are explicitly simulated.
 
-Built using **Hyperledger Fabric v2.5-model chaincode for Drunix**, Rasid enforces role-based ownership rules, prevents unauthorized transfers, protects against replay attacks, and demonstrates how concurrent double-sale attempts can be rejected through Fabric's native MVCC validation.
+### Start the simulation
 
-The platform combines a permissioned blockchain ledger, a Fabric Gateway-connected backend, and a role-based web console into one integrated factoring workflow.
+Requires Node.js 22.9+ and npm. Docker, WSL, Go, Fabric certificates, and a live network are not required for the demo.
+
+```powershell
+$env:PORT = '3187'
+npm run build:web
+npm run start:demo
+```
+
+Open [http://localhost:3187](http://localhost:3187). Port 3187 avoids the existing Docker/WSL listener on port 3000 in the current development environment; if port 3000 is free, the `$env:PORT` line can be omitted and the app opens at `http://localhost:3000`. Sign in as **Platform Operator** with password **`rasid-demo`** (unless `RASID_DEMO_PASSWORD` is explicitly set in the local environment). Sample receivables are seeded on first start and are stored under `data/demo/`; the app never reads or resets Fabric/Yugabyte ledger data. Use **Blockchain Explorer → Run guided demo** to register, accept, discount, transfer, release, and settle a fresh sample receivable. **Reset demo data** is restricted to the Operator and resets only this local simulation store. The existing application audit log is not erased by demo reset.
+
+To run the Vite UI separately, start the backend with `npm run start:demo`, then in another PowerShell window run `$env:RASID_API_TARGET = 'http://localhost:3187'; npm --prefix web run dev` and open [http://localhost:5173](http://localhost:5173). The proxy target defaults to port 3000 when `RASID_API_TARGET` is unset.
+
+The **Blockchain Explorer** shows simulated blocks and transactions, organization labels, transaction data, previous/current SHA-256 hashes, and a hash-chain integrity check. This demonstrates blockchain concepts; it is not a cryptographically distributed or live Hyperledger Fabric ledger.
+
+Rasid is designed as a blockchain-powered post-discount position ledger for establishing, tracking, and verifying ownership of discounted factoring units. The judge demo mirrors existing RASID rules locally; it does not demonstrate a live Fabric runtime.
+
+The project includes **Hyperledger Fabric v2.5-model Go chaincode for Drunix** and a separate Fabric Gateway adapter. The local simulation mirrors role checks, transfer rules, replay protection, and MVCC-style concurrency behavior; simulated results are not actual Fabric validation.
+
+The application combines a Node.js backend and role-based web console with selectable ledger implementations. The judge-demo launcher forces the isolated local simulation and does not connect through the Fabric Gateway.
 
 ---
 
@@ -21,7 +39,9 @@ The platform combines a permissioned blockchain ledger, a Fabric Gateway-connect
 | Chaincode formatting | Verified |
 | Chaincode real Fabric compilation | Pending |
 | Chaincode deployment on Drunix | Pending |
-| Fabric Gateway adapter | Implemented, not network-tested |
+| Fabric Gateway adapter | Configuration validation, TLS identity checks and commit-status handling implemented; live network still untested |
+| Backend-controlled environment selector | Implemented; server allowlist and Operator authorization enforced |
+| Network status panel | Implemented; reports backend query/auth status and observed commit metadata |
 | Express API | Dev engine tests passed |
 | React web console | 16/16 Playwright tests passed |
 | Double-sale concurrency test | 20/20 on dev engine |
@@ -32,7 +52,7 @@ The platform combines a permissioned blockchain ledger, a Fabric Gateway-connect
 **Implementation evidence**
 
 - Go rules tests: `reports/go-rules-test.txt`
-- API tests: 3 tests on the development engine
+- API/configuration tests: 5/5 on the development engine
 - Frontend tests: 16/16 across three consecutive runs
 - Concurrency tests: 20/20 on the development engine
 
@@ -42,9 +62,9 @@ The platform combines a permissioned blockchain ledger, a Fabric Gateway-connect
 
 | Indicator | Meaning |
 |---|---|
-| 🟠 DEV ENGINE – NOT DRUNIX | Running with the local development ledger |
-| 🟢 DRUNIX – CONNECTED | Real network connection confirmed through `WhoAmI` |
-| 🔴 DRUNIX – NOT CONNECTED | Real Drunix network unavailable |
+| DEV MODE — NOT DRUNIX | Running with the local development ledger |
+| CONNECTED | Backend `WhoAmI` query succeeded against the configured Drunix chaincode as the logged-in identity |
+| CONFIGURATION REQUIRED / AUTHENTICATION FAILED / CHAINCODE UNAVAILABLE / DISCONNECTED | Backend reports the actual setup or connection failure; no dev fallback |
 
 Drunix mode never silently falls back to the development engine.
 
@@ -100,7 +120,7 @@ Because both transactions read and write the same position key, Fabric's MVCC va
 | Icons | Lucide |
 | Testing | Go testing, Node.js tests, Playwright |
 | Runtime | Docker, Linux / WSL2 |
-| Ledger modes | Development engine / Drunix |
+| Ledger modes | Local simulation (demo default) / development test engine / Drunix (separate, not used by demo) |
 
 ### System Architecture
 
@@ -230,19 +250,16 @@ This is a ledger-level concurrency safeguard, not an application-level lock.
 
 ### Prerequisites
 
-- Linux environment
-- Git
-- Docker
-- Go
-- Node.js and npm
-- jq
+- Node.js 22.9+ and npm for the local simulation.
+- Go is needed only for the optional chaincode unit tests.
 
-**Windows users:** Use WSL2 Ubuntu with Docker Desktop's WSL integration enabled.
+Docker, WSL2, Fabric, and YugabyteDB are not required to run the judge demo.
 
 ### Step 1 — Install Dependencies
 
 ```bash
-npm install
+npm ci
+npm --prefix web ci
 ```
 
 ### Step 2 — Build the Web Console
@@ -255,23 +272,26 @@ The React application is built into `web/dist` and served through Express.
 
 If `web/dist` does not exist, Express falls back to the legacy static console in `public/`.
 
-### Step 3 — Start Development Mode
+### Step 3 — Start the Local Simulation
 
 ```bash
-LEDGER_MODE=dev RASID_DEMO_PASSWORD=rasid-demo npm start
+npm run dev
 ```
+
+This starts the same local simulation as `npm run start:demo`; it does not connect to the live Fabric network.
 
 Open:
 
 `http://localhost:3000`
 
-This runs Rasid using the development ledger, not Drunix.
+The simulation data is kept separately under `data/demo/`.
 
 ### Step 4 — Run Tests
 
 ```bash
 npm test
-npm run test:chaincode
+wsl.exe -d Ubuntu -- bash -lc "cd /mnt/d/Desktop/DRUNIX/chaincode/rasid && go test ./..."
+npm run build:web
 npm run test:e2e
 ```
 
@@ -290,141 +310,21 @@ Vite runs on port `5173` and proxies `/api` requests to Express on port `3000`.
 
 ## 07 — Drunix Network Deployment
 
-**This section describes the deployment procedure. It has not yet been executed against Drunix.**
-
-### Step 1 — Prepare the Network
-
-Start the official Drunix test network using its repository instructions.
-
-The intended setup uses:
-- Two peer organisations.
-- Lite peers.
-- Committing peers.
-- Docker-based network services.
-
-Keep unrelated services disabled. This prototype does not require a GPU.
-
-### Step 2 — Validate the Chaincode
-
-```bash
-cd chaincode/rasid
-
-go mod tidy
-go vet ./...
-go test ./rules
-```
-
-The pure Go ownership rules have been tested. However, the chaincode has not yet been compiled against the actual Fabric dependencies.
-
-### Step 3 — Deploy Chaincode
-
-Deploy using the official Drunix chaincode deployment script.
-
-| Parameter | Value |
-|---|---|
-| Chaincode name | `rasid` |
-| Language | Go |
-| Source path | `chaincode/rasid` |
-| Endorsement policy | Both organisations |
-
-Example endorsement policy:
-
-```text
-AND('Org1MSP.peer','Org2MSP.peer')
-```
-
-Use the exact script, flags, and configuration documented in the Drunix repository.
+**No network deployment has been run from this workspace.** The official NPCI repository is [`npci/drunix`](https://github.com/npci/drunix); use its own test-network guide, not generic Fabric `test-network` instructions. Follow [DRUNIX_SETUP.md](./DRUNIX_SETUP.md) and [DRUNIX_DEPLOYMENT.md](./DRUNIX_DEPLOYMENT.md).
 
 ---
 
 ## 08 — Identity & Environment Configuration
 
-Create the identity configuration:
+The checked-in identity template contains environment-variable references only. It is not a certificate or a valid network configuration. Follow [DRUNIX_CONFIGURATION.md](./DRUNIX_CONFIGURATION.md) to create the ignored local files and obtain seven distinct, network-issued identities.
 
-```bash
-cp identities.example.json identities.json
-```
-
-Populate the certificate, private-key, TLS certificate, and endpoint paths for all seven identities.
-
-Configure the environment:
-
-```bash
-cp .env.example .env
-```
-
-Set:
-
-```env
-LEDGER_MODE=drunix
-```
-
-Then initialise the network:
-
-```bash
-npm run seed
-npm start
-```
-
-The seed operation binds the operator and registers the required participants.
-
-Ensure that each certificate's Common Name matches the corresponding enrolled identity.
+`npm start` and `npm run start:demo` load the local `.env` but force the isolated local simulation mode; they never connect to or fall back to a real Fabric network. `npm run seed` is a separate network-oriented utility and is not part of the demo workflow.
 
 ---
 
 ## 09 — Drunix Verification Suite
 
-**Run these checks before claiming successful blockchain integration.**
-
-### 1. Seed the Real Network
-
-```bash
-LEDGER_MODE=drunix npm run seed
-```
-
-### 2. Execute Integration Tests
-
-```bash
-LEDGER_MODE=drunix npm run test:drunix
-```
-
-The integration suite uses unique identifiers per run.
-
-### 3. Verify Concurrent Double-Sale Prevention
-
-```bash
-LEDGER_MODE=drunix npm run verify:concurrency 20
-```
-
-Expected evidence: repeated same-state double-sale attempts with commit results recorded from the real network.
-
-Reports:
-
-`reports/concurrency-drunix-*.json`
-
-### 4. Benchmark Transaction Performance
-
-```bash
-LEDGER_MODE=drunix npm run benchmark 50
-```
-
-The benchmark records measured p50 and p95 latency.
-
-Reports:
-
-`reports/benchmark-drunix-*.json`
-
-### 5. Verify Persistence
-
-Restart the Drunix network and confirm that previously committed positions remain unchanged.
-
-Reference:
-
-`test/drunix.smoke.md`
-
-**Evidence policy:** Every report records `ledgerMode` and `drunixEvidence`. Only reports generated with the real Drunix ledger count as Drunix evidence.
-
-Update `STATUS.md` only after the corresponding verification has actually passed.
+Run the sandbox-only real-network procedures in [DRUNIX_TESTING.md](./DRUNIX_TESTING.md) and [test/drunix.smoke.md](./test/drunix.smoke.md). The suite uses unique identifiers and actual Gateway commit status. No Drunix result is claimed until it has been run against the intended network.
 
 ---
 
@@ -508,7 +408,8 @@ rasid/
 
 | Issue | Recommended action |
 |---|---|
-| Drunix unreachable | Verify `identities.json`, peer endpoints, host aliases, `CHANNEL`, `CHAINCODE`, and `docker ps` |
+| Configuration required | Verify every identity variable in `.env`, local `identities.json`, issued credential files, TLS roots, `CHANNEL`, and `CHAINCODE` |
+| Drunix unreachable | Check the official Drunix network containers, client-accessible Gateway endpoint, host alias and TLS root; do not disable TLS verification |
 | UNKNOWN_IDENTITY | Run `npm run seed` and verify the certificate CN |
 | Unexpected concurrency result | Review `test/drunix.smoke.md`, especially item 5 |
 | Go dependency errors | Run `go mod tidy` with network access |

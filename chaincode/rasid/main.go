@@ -17,10 +17,12 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/hyperledger/fabric-chaincode-go/shim"
 	"github.com/hyperledger/fabric-contract-api-go/contractapi"
 	"rasid/chaincode/rules"
 )
@@ -181,7 +183,10 @@ func (c *Contract) store(ctx Ctx, p Participant) error {
 	if err := put(ctx, "PART~"+p.CN, p); err != nil {
 		return err
 	}
-	return ctx.GetStub().PutState("PARTID~"+p.ID, []byte(p.CN))
+	// Drunix persists ledger values in Yugabyte JSON columns.  Keep this index
+	// JSON-encoded as well; raw certificate-CN bytes cause the committing peer
+	// to reject the otherwise-valid block during state-database commit.
+	return put(ctx, "PARTID~"+p.ID, p.CN)
 }
 
 // RegisterParticipant is operator-only. cn is the Common Name in the participant's certificate.
@@ -313,12 +318,16 @@ func (c *Contract) TransferPosition(ctx Ctx, fuID, toID string, amountPaise int6
 	if toID == a.ID {
 		return rules.Fail("INVALID_REQUEST", "cannot transfer to yourself")
 	}
-	var toCN []byte
-	if toCN, err = ctx.GetStub().GetState("PARTID~" + toID); err != nil {
+	var toCN string
+	ok, err := get(ctx, "PARTID~"+toID, &toCN)
+	if err != nil {
 		return err
 	}
+	if !ok {
+		return rules.Fail("RECIPIENT_NOT_ELIGIBLE", "%q is not a registered financier", toID)
+	}
 	var to Participant
-	if ok, err := get(ctx, "PART~"+string(toCN), &to); err != nil {
+	if ok, err := get(ctx, "PART~"+toCN, &to); err != nil {
 		return err
 	} else if !ok || to.Role != rules.RoleFinancier {
 		return rules.Fail("RECIPIENT_NOT_ELIGIBLE", "%q is not a registered financier", toID)
@@ -528,7 +537,21 @@ func main() {
 	if err != nil {
 		log.Panicf("create chaincode: %v", err)
 	}
-	if err := cc.Start(); err != nil {
-		log.Panicf("start chaincode: %v", err)
+
+	server := &shim.ChaincodeServer{
+		CCID:    os.Getenv("CHAINCODE_ID"),
+		Address: os.Getenv("CHAINCODE_SERVER_ADDRESS"),
+		CC:      cc,
+		TLSProps: shim.TLSProperties{
+			Disabled: true,
+		},
+	}
+
+	if server.CCID == "" || server.Address == "" {
+		log.Fatal("CHAINCODE_ID and CHAINCODE_SERVER_ADDRESS must be set")
+	}
+
+	if err := server.Start(); err != nil {
+		log.Panicf("start CCAAS server: %v", err)
 	}
 }

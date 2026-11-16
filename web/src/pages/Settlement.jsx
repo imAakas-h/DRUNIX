@@ -18,7 +18,7 @@ export default function Settlement() {
   const go = async (paymentRef) => { setBusy(true); const r = await api.settle(cur.fu.fuId, paymentRef); setBusy(false); setRes(r); if (r.data.payment) setPayment(r.data.payment); list.reload(); };
   return (
     <>
-      <PageHeader title="Settlement & release" sub="The payment event is simulated; the position release is a real ledger transaction, allowed once per unit and once per settlement reference." />
+      <PageHeader title="Settlement & release" sub="The payment and ledger commit are simulated locally. Settlement is allowed once per unit and once per settlement reference." />
       {!cur ? <Empty>No factoring units yet.</Empty> : (
         <>
           <Card><div className="flex flex-wrap items-end gap-4"><Field label="Factoring unit"><select value={cur.fu.fuId} onChange={(e) => { setSp({ fu: e.target.value }); setRes(null); setPayment(null); setCersai(null); }}>{list.data.map((r) => <option key={r.fu.fuId}>{r.fu.fuId}</option>)}</select></Field>

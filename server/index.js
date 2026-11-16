@@ -8,12 +8,28 @@ const { LedgerError } = require('./ledger-dev');
 const { seedParticipants, ROLES } = require('./seed');
 const ad = require('./adapters');
 
-function makeLedger() {
-  if ((process.env.LEDGER_MODE || 'drunix') === 'dev') return new (require('./ledger-dev').DevLedger)();
-  return new (require('./ledger-fabric').FabricLedger)({ channel: process.env.CHANNEL || 'mychannel', chaincode: process.env.CHAINCODE || 'rasid', identitiesFile: process.env.IDENTITIES_FILE || './identities.json' });
+function makeLedger(mode = process.env.LEDGER_MODE || 'simulation') {
+  if (mode === 'simulation') return new (require('./ledger-simulation').SimulationLedger)();
+  if (mode === 'dev') return new (require('./ledger-dev').DevLedger)();
+  if (mode !== 'drunix') throw new Error(`unsupported ledger mode: ${mode}`);
+  return new (require('./ledger-fabric').FabricLedger)({
+    channel: process.env.CHANNEL || '',
+    chaincode: process.env.CHAINCODE || '',
+    identitiesFile: process.env.IDENTITIES_FILE || './identities.json',
+  });
 }
 
-function createApp({ ledger, dataDir = process.env.DATA_DIR || './data', secret = process.env.SESSION_SECRET || 'dev-secret', password = process.env.RASID_DEMO_PASSWORD || 'rasid-demo' }) {
+function createApp({
+  ledger: initialLedger,
+  dataDir = process.env.DATA_DIR || './data',
+  secret = process.env.SESSION_SECRET || (['dev', 'simulation'].includes(process.env.LEDGER_MODE) ? 'dev-secret' : ''),
+  password = process.env.RASID_DEMO_PASSWORD || (process.env.NODE_ENV === 'production' ? '' : 'rasid-demo'),
+  allowedModes = (process.env.LEDGER_ALLOWED_MODES || process.env.LEDGER_MODE || 'simulation').split(',').map((mode) => mode.trim()).filter(Boolean),
+  ledgerFactory = makeLedger,
+}) {
+  let ledger = initialLedger;
+  const ledgers = new Map([[initialLedger.mode, initialLedger]]);
+  const allowed = new Set(allowedModes);
   fs.mkdirSync(dataDir, { recursive: true });
   const auditFile = path.join(dataDir, 'audit.jsonl'); // append-only attempt log (all outcomes)
   const latencies = [];
@@ -44,9 +60,42 @@ function createApp({ ledger, dataDir = process.env.DATA_DIR || './data', secret 
   const finish = (rec, p, c, t0) => {
     const ok = c.status === 'COMMITTED';
     if (ok) latencies.push(Math.round(performance.now() - t0));
-    return log({ ...rec, txId: p.txId, blockNumber: c.blockNumber, outcome: ok ? 'ACCEPTED' : 'REJECTED_COMMIT', reasonCode: ok ? null : c.status, message: ok ? 'Validated and committed' : 'Rejected by commit-time validation; no state change' });
+    const execution = ledger.mode === 'simulation' ? [
+      { stage: 'User initiated operation', simulated: true, organization: ledger.organizationFor?.(rec.actor)?.name || rec.actor },
+      { stage: 'Backend request validation', simulated: true, status: 'PASSED' },
+      { stage: 'Simulated RASID chaincode execution', simulated: true, operation: p.operation },
+      { stage: 'Simulated organization endorsement', simulated: true },
+      { stage: 'Simulated ordering', simulated: true },
+      { stage: 'Simulated block append', simulated: true, blockNumber: ok ? c.blockNumber : null },
+      { stage: 'Local demo ledger update', simulated: true, status: ok ? 'UPDATED' : 'UNCHANGED' },
+    ] : undefined;
+    return log({
+      ...rec,
+      txId: p.txId,
+      blockNumber: c.blockNumber,
+      outcome: ok ? 'ACCEPTED' : 'REJECTED_COMMIT',
+      reasonCode: ok ? null : c.status,
+      message: ok ? 'Validated and committed' : 'Rejected by commit-time validation; no state change',
+      ...(execution ? { simulated: true, simulationMode: true, execution } : {}),
+    });
   };
-  const fail = (rec, e) => log({ ...rec, txId: null, outcome: e.kind === 'REJECTED_CHAINCODE' ? 'REJECTED_CHAINCODE' : 'ERROR', reasonCode: e.code || 'INTERNAL', message: e.message });
+  const fail = (rec, e) => log({
+    ...rec,
+    txId: e.txId || (ledger.mode === 'simulation' ? `SIM-ATTEMPT-${crypto.randomBytes(12).toString('hex')}` : null),
+    outcome: e.kind === 'REJECTED_CHAINCODE' ? 'REJECTED_CHAINCODE' : 'ERROR',
+    reasonCode: e.code || 'INTERNAL',
+    message: e.message,
+    ...(ledger.mode === 'simulation' ? {
+      simulated: true,
+      simulationMode: true,
+      execution: [
+        { stage: 'User initiated operation', simulated: true, organization: ledger.organizationFor?.(rec.actor)?.name || rec.actor },
+        { stage: 'Backend and chaincode validation', simulated: true, status: 'REJECTED', reasonCode: e.code || 'INTERNAL' },
+        { stage: 'Simulated commit', simulated: true, status: 'NOT_COMMITTED' },
+        { stage: 'Local demo ledger update', simulated: true, status: 'UNCHANGED' },
+      ],
+    } : {}),
+  });
   async function exec(identity, action, fuId, fn, args, ref) {
     const rec = { ts: new Date().toISOString(), actor: identity, action, fuId, requestRef: ref }; const t0 = performance.now();
     try { const p = await ledger.propose(identity, fn, args); return finish(rec, p, await ledger.commit(p), t0); }
@@ -62,7 +111,16 @@ function createApp({ ledger, dataDir = process.env.DATA_DIR || './data', secret 
   app.get('/api/health', (_q, r) => r.json({ ok: true }));
   app.post('/api/login', (req, res) => {
     const { identity, password: pw } = req.body || {};
-    if (!ROLES[identity] || pw !== password) return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
+    if (!ROLES[identity]) return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
+    if ((process.env.NODE_ENV === 'production' || ledger.mode === 'drunix') && (!secret || secret.length < 32)) return res.status(503).json({ error: 'SESSION_SECRET_REQUIRED' });
+    const expectedPassword = process.env.NODE_ENV === 'production'
+      ? process.env[`RASID_PASSWORD_${identity}`]
+      : ledger.mode === 'drunix' ? process.env[`RASID_PASSWORD_${identity}`] : password;
+    if (!expectedPassword) return res.status(503).json({ error: 'IDENTITY_PASSWORD_NOT_CONFIGURED' });
+    if ((process.env.NODE_ENV === 'production' || ledger.mode === 'drunix') && expectedPassword.length < 32) {
+      return res.status(503).json({ error: 'IDENTITY_PASSWORD_TOO_WEAK' });
+    }
+    if (pw !== expectedPassword) return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
     res.json({ token: issue(identity), identity, role: ROLES[identity] });
   });
   app.use('/api', (req, res, next) => {
@@ -75,7 +133,124 @@ function createApp({ ledger, dataDir = process.env.DATA_DIR || './data', secret 
 
   app.get('/api/audit/verify', (req, res) => (['AUDITOR', 'OPERATOR'].includes(req.role) ? res.json(verifyChain()) : res.status(403).json({ error: 'ROLE_NOT_AUTHORISED' })));
   app.get('/api/audit/recent', (req, res) => res.json(attempts().filter((r) => req.role !== 'FINANCIER' || r.actor === req.id).slice(-20).reverse()));
-  app.get('/api/network/health', wrap(async (_q, r) => r.json(await ledger.health())));
+  app.get('/api/network/health', wrap(async (req, res) => res.json(await ledger.health(req.id))));
+  app.post('/api/network/mode', wrap(async (req, res) => {
+    if (req.role !== 'OPERATOR') return res.status(403).json({ error: 'ROLE_NOT_AUTHORISED' });
+    const parsed = z.object({ mode: z.enum(['dev', 'drunix']) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'INVALID_MODE' });
+    if (!allowed.has(parsed.data.mode)) return res.status(403).json({ error: 'MODE_NOT_ALLOWED_BY_SERVER' });
+    if (parsed.data.mode !== ledger.mode) {
+      if (!ledgers.has(parsed.data.mode)) ledgers.set(parsed.data.mode, ledgerFactory(parsed.data.mode));
+      ledger = ledgers.get(parsed.data.mode);
+    }
+    res.json(await ledger.health(req.id));
+  }));
+  app.get('/api/network/modes', (req, res) => res.json({ active: ledger.mode, allowed: [...allowed] }));
+  const simulationOnly = (req, res) => {
+    if (ledger.mode !== 'simulation') {
+      res.status(409).json({ error: 'SIMULATION_MODE_REQUIRED', message: 'This endpoint is available only in local simulation mode.' });
+      return false;
+    }
+    return true;
+  };
+  app.get('/api/ledger/summary', wrap(async (req, res) => {
+    if (!simulationOnly(req, res)) return;
+    const blocks = ledger.snapshot();
+    const receivables = await ledger.query(req.id, 'ListFactoringUnits', []);
+    const latest = blocks.at(-1) || null;
+    const activity = {};
+    for (const block of blocks) {
+      for (const transaction of block.transactions) {
+        const key = transaction.initiator.id;
+        activity[key] = (activity[key] || 0) + 1;
+      }
+    }
+    res.json({
+      simulated: true,
+      totalBlocks: blocks.length,
+      totalTransactions: blocks.reduce((sum, block) => sum + block.transactionCount, 0),
+      totalReceivables: receivables.length,
+      latestBlock: latest,
+      organizationActivity: activity,
+      latestTransactions: blocks.slice().reverse().flatMap((block) => block.transactions.map((transaction) => ({
+        seq: block.blockNumber,
+        ts: transaction.timestamp,
+        actor: transaction.initiator.id,
+        fuId: transaction.data.arguments[0],
+        action: transaction.operation,
+        outcome: 'ACCEPTED',
+        txId: transaction.transactionId,
+        blockNumber: block.blockNumber,
+        simulated: true,
+      }))).filter((transaction) => transaction.fuId?.startsWith('FU-')).slice(0, 8),
+      participants: Object.entries(require('./ledger-simulation').ORGANIZATIONS).map(([id, organization]) => ({
+        id,
+        ...organization,
+        role: ROLES[id],
+        simulated: true,
+      })),
+    });
+  }));
+  app.get('/api/ledger/blocks', (req, res) => {
+    if (!simulationOnly(req, res)) return;
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+    res.json({ simulated: true, blocks: ledger.snapshot().slice(-limit).reverse() });
+  });
+  app.get('/api/ledger/blocks/:number', (req, res) => {
+    if (!simulationOnly(req, res)) return;
+    const number = Number(req.params.number);
+    const block = Number.isSafeInteger(number) && number > 0 ? ledger.snapshot()[number - 1] : null;
+    if (!block) return res.status(404).json({ error: 'BLOCK_NOT_FOUND' });
+    res.json({ simulated: true, block });
+  });
+  app.get('/api/ledger/transactions/:txId', (req, res) => {
+    if (!simulationOnly(req, res)) return;
+    const result = ledger.findTransaction(req.params.txId);
+    if (!result) return res.status(404).json({ error: 'TRANSACTION_NOT_FOUND' });
+    res.json({ simulated: true, ...result });
+  });
+  app.get('/api/ledger/verify', (req, res) => {
+    if (!simulationOnly(req, res)) return;
+    res.json({ simulated: true, ...ledger.verify() });
+  });
+  app.get('/api/demo/guide', (_req, res) => res.json({
+    simulated: true,
+    steps: [
+      { number: 1, title: 'Register and validate', organization: 'DRUNIX Platform Operator', detail: 'Register a new receivable. The invoice and duplicate-financing checks are explicitly simulated.' },
+      { number: 2, title: 'Accept', organization: 'DRUNIX Platform Operator', detail: 'Record buyer acceptance for a registered receivable.' },
+      { number: 3, title: 'Discount', organization: 'A participating financier', detail: 'Create the initial financier position after acceptance.' },
+      { number: 4, title: 'Transfer / release', organization: 'Current financier', detail: 'Transfer a position to another financier or release part of the position.' },
+      { number: 5, title: 'Settle', organization: 'DRUNIX Platform Operator', detail: 'Record simulated payment and release all remaining positions.' },
+      { number: 6, title: 'Explore and verify', organization: 'Independent Auditor', detail: 'Inspect blocks, transactions, hash linkage, and run ledger verification.' },
+    ],
+  }));
+  app.post('/api/demo/guided-run', wrap(async (req, res) => {
+    if (!simulationOnly(req, res)) return;
+    if (!['OPERATOR', 'AUDITOR'].includes(req.role)) return res.status(403).json({ error: 'ROLE_NOT_AUTHORISED' });
+    const fuId = `FU-GUIDE-${Date.now().toString(36).toUpperCase()}`;
+    const request = (suffix) => `${fuId}:${suffix}`;
+    const amount = 48000000;
+    const verification = ad.verifyInvoice({ fuId, invoiceNo: `INV-${fuId}`, buyer: 'Meridian Retail Ltd', amountPaise: amount });
+    const evidenceHash = verification.evidenceHash;
+    const steps = [];
+    steps.push(await exec('OPERATOR', 'REGISTER', fuId, 'RegisterFactoringUnit', [fuId, 'Meridian Retail Ltd', amount, evidenceHash, request('register')], request('register')));
+    steps.push(await exec('OPERATOR', 'ACCEPT', fuId, 'AcceptFactoringUnit', [fuId, request('accept')], request('accept')));
+    steps.push(await exec('FINANCIER_A', 'DISCOUNT', fuId, 'DiscountFactoringUnit', [fuId, request('discount')], request('discount')));
+    steps.push(await exec('FINANCIER_A', 'TRANSFER', fuId, 'TransferPosition', [fuId, 'FINANCIER_B', 19200000, request('transfer')], request('transfer')));
+    steps.push(await exec('FINANCIER_B', 'RELEASE', fuId, 'ReleasePosition', [fuId, 4800000, request('release')], request('release')));
+    steps.push(await exec('OPERATOR', 'SETTLE', fuId, 'SettleReceivable', [fuId, request('settle')], request('settle')));
+    const finalState = await state('OPERATOR', fuId);
+    res.json({ simulated: true, fuId, verification, steps, finalState, explorer: `/explorer?fu=${encodeURIComponent(fuId)}` });
+  }));
+  app.post('/api/demo/reset', wrap(async (req, res) => {
+    if (!simulationOnly(req, res)) return;
+    if (req.role !== 'OPERATOR') return res.status(403).json({ error: 'ROLE_NOT_AUTHORISED' });
+    ledger.reset();
+    await seedParticipants(ledger);
+    const { seedDemoReceivables } = require('./demo-seed');
+    await seedDemoReceivables(ledger);
+    res.json({ simulated: true, reset: true, message: 'Local demo ledger reset and sample receivables restored. Fabric, YugabyteDB, and application audit history were not changed.' });
+  }));
   app.get('/api/metrics', (_q, r) => {
     const s = [...latencies].sort((a, b) => a - b); const q = (p) => (s.length ? s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)] : null);
     r.json({ mode: ledger.mode, samples: s.length, p50Ms: q(0.5), p95Ms: q(0.95), environment: `${ledger.mode} · node ${process.version} · ${process.platform}`, note: 'Measured propose→commit latency of successful transactions since server start.' });
@@ -101,8 +276,8 @@ function createApp({ ledger, dataDir = process.env.DATA_DIR || './data', secret 
   });
   app.post('/api/receivables', mutation('register', z.object({ fuId: fuIdZ, buyer: z.string().min(2).max(80), invoiceNo: z.string().min(1).max(40), amountPaise: amt, requestRef: ref }), (d) => {
     const v = ad.verifyInvoice(d);
-    if (!v.passed) return { precheck: { outcome: 'REJECTED_PRECHECK', reasonCode: 'SIMULATED_VERIFICATION_FAILED', message: v.checks.filter((c) => !c.passed).map((c) => c.detail).join('; ') + ' (SIMULATED adapter)' }, checks: v.checks };
-    return { fn: 'RegisterFactoringUnit', args: [d.fuId, d.buyer, d.amountPaise, v.evidenceHash, d.requestRef], extra: { simulated: true, checks: v.checks } };
+    if (!v.passed) return { precheck: { outcome: 'REJECTED_PRECHECK', reasonCode: 'SIMULATED_VERIFICATION_FAILED', message: v.checks.filter((c) => !c.passed).map((c) => c.detail).join('; ') + ' (SIMULATED adapter)' }, checks: v.checks, verificationSimulated: true };
+    return { fn: 'RegisterFactoringUnit', args: [d.fuId, d.buyer, d.amountPaise, v.evidenceHash, d.requestRef], extra: { verificationSimulated: true, checks: v.checks } };
   }));
   const one = (action, fn, schemaExtra = {}, mk = (d, req) => [req.params.id, d.requestRef], alias = '') => app.post([`/api/receivables/:id/${action}`, ...(alias ? [`/api/receivables/:id/${alias}`] : [])], mutation(action, z.object({ requestRef: ref, ...schemaExtra }), (d, req) => ({ fn, args: mk(d, req) })));
   one('accept', 'AcceptFactoringUnit');
@@ -178,16 +353,46 @@ function createApp({ ledger, dataDir = process.env.DATA_DIR || './data', secret 
     res.json({ step: n, outcomes: out, final: await state('OPERATOR', fuId).catch(() => null) });
   }));
   // React build (web/dist) when present; otherwise the legacy static console in public/.
-  const dist = path.join(__dirname, '..', 'web', 'dist'); const staticDir = fs.existsSync(dist) ? dist : path.join(__dirname, '..', 'public');
+  const dist = process.env.WEB_DIST_DIR ? path.resolve(process.env.WEB_DIST_DIR) : path.join(__dirname, '..', 'web', 'dist');
+  const staticDir = fs.existsSync(dist) ? dist : path.join(__dirname, '..', 'public');
   app.use(express.static(staticDir)); app.get(/^\/(?!api\/).*/, (_q, r) => r.sendFile(path.join(staticDir, 'index.html')));
+  app.locals.closeLedgers = async () => Promise.allSettled([...ledgers.values()].map((active) => active.close?.()));
   return app;
 }
 
-module.exports = { createApp, makeLedger };
-if (require.main === module) {
-  (async () => {
-    const ledger = makeLedger();
-    if (ledger.mode === 'dev') { await seedParticipants(ledger); console.warn('⚠ DEV ENGINE active — this is NOT Drunix.'); }
-    createApp({ ledger }).listen(process.env.PORT || 3000, () => console.log(`Rasid on :${process.env.PORT || 3000} (${ledger.mode})`));
-  })();
+async function startServer() {
+  const ledger = makeLedger();
+  if (ledger.mode === 'dev') {
+    await seedParticipants(ledger);
+    console.warn('DEV MODE active. This local ledger is NOT Drunix.');
+  } else if (ledger.mode === 'simulation') {
+    await seedParticipants(ledger);
+    const { seedDemoReceivables } = require('./demo-seed');
+    const seeded = await seedDemoReceivables(ledger);
+    console.warn(`SIMULATION MODE active. Local demo ledger only; ${seeded ? 'sample receivables initialized' : 'existing demo data preserved'}. No live Fabric transactions are performed.`);
+  }
+  const app = createApp({ ledger });
+  const onListen = () => console.log(`Rasid on :${process.env.PORT || 3000} (${ledger.mode})`);
+  const server = process.env.HOST
+    ? app.listen(process.env.PORT || 3000, process.env.HOST, onListen)
+    : app.listen(process.env.PORT || 3000, onListen);
+  const shutdown = () => {
+    server.close(async () => {
+      const results = await app.locals.closeLedgers();
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          console.error('Ledger shutdown failed:', result.reason.message);
+          process.exitCode = 1;
+        }
+      }
+    });
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
 }
+
+module.exports = { createApp, makeLedger, startServer };
+if (require.main === module) startServer().catch((e) => {
+  console.error('RASID startup failed:', e.message);
+  process.exitCode = 1;
+});

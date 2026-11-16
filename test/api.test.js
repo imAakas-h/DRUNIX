@@ -3,28 +3,51 @@
 // scenario logic. They do NOT prove Drunix behaviour: run test/drunix.smoke.md against a real network.
 const test = require('node:test');
 const assert = require('node:assert');
+const crypto = require('node:crypto');
 const fs = require('fs'); const os = require('os'); const path = require('path');
 const { createApp, makeLedger } = require('../server/index');
 const { seedParticipants } = require('../server/seed');
 
 const MODE = process.env.LEDGER_MODE || 'dev'; // LEDGER_MODE=drunix runs this same suite against the real network
 const RUN = MODE === 'dev' ? '' : '-' + Date.now().toString(36); // on-chain references persist, so ids must be unique per run
-let server, base; const tok = {};
+const TEST_PASSWORD = crypto.randomBytes(24).toString('hex');
+let server, base, ledger; const tok = {};
 const api = async (who, method, url, body) => {
   const r = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(who ? { authorization: 'Bearer ' + tok[who] } : {}) }, body: body ? JSON.stringify(body) : undefined });
   return { status: r.status, body: await r.json() };
 };
 test.before(async () => {
-  process.env.LEDGER_MODE = MODE; const ledger = makeLedger(); await seedParticipants(ledger).catch((e) => { if (MODE === 'dev') throw e; });
-  server = createApp({ ledger, dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'rasid-')), password: 'pw', secret: 's' }).listen(0);
+  if (MODE === 'drunix') {
+    for (const id of ['OPERATOR', 'FINANCIER_A', 'FINANCIER_B', 'INSURER', 'AUDITOR']) process.env[`RASID_PASSWORD_${id}`] = TEST_PASSWORD;
+  }
+  process.env.LEDGER_MODE = MODE; ledger = makeLedger(); await seedParticipants(ledger);
+  server = createApp({ ledger, dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'rasid-')), password: TEST_PASSWORD, secret: crypto.randomBytes(32).toString('hex'), allowedModes: ['dev', 'drunix'] }).listen(0);
   base = `http://127.0.0.1:${server.address().port}`;
-  for (const id of ['OPERATOR', 'FINANCIER_A', 'FINANCIER_B', 'INSURER', 'AUDITOR']) tok[id] = (await api(null, 'POST', '/api/login', { identity: id, password: 'pw' })).body.token;
+  for (const id of ['OPERATOR', 'FINANCIER_A', 'FINANCIER_B', 'INSURER', 'AUDITOR']) tok[id] = (await api(null, 'POST', '/api/login', { identity: id, password: TEST_PASSWORD })).body.token;
 });
-test.after(() => server.close());
+test.after(async () => {
+  if (server) await new Promise((resolve) => server.close(resolve));
+  await ledger?.close?.();
+});
 
 test('authentication is required and bad password is refused', async () => {
   assert.equal((await api(null, 'GET', '/api/receivables')).status, 401);
   assert.equal((await api(null, 'POST', '/api/login', { identity: 'OPERATOR', password: 'x' })).status, 401);
+});
+
+test('environment selection is server-authorised and constrained by its allowlist', async () => {
+  const otherMode = MODE === 'dev' ? 'drunix' : 'dev';
+  assert.equal((await api('FINANCIER_A', 'POST', '/api/network/mode', { mode: otherMode })).status, 403);
+  const switched = await api('OPERATOR', 'POST', '/api/network/mode', { mode: otherMode });
+  assert.equal(switched.status, 200);
+  assert.equal(switched.body.mode, otherMode);
+  if (otherMode === 'drunix') assert.equal(switched.body.status, 'CONFIGURATION REQUIRED');
+  const restored = await api('OPERATOR', 'POST', '/api/network/mode', { mode: MODE });
+  assert.equal(restored.status, 200);
+  assert.equal(restored.body.mode, MODE);
+  const modes = await api('OPERATOR', 'GET', '/api/network/modes');
+  assert.equal(modes.body.active, MODE);
+  assert.deepEqual(modes.body.allowed, ['dev', 'drunix']);
 });
 
 test('manual flow: register, duplicate, accept, discount, transfer, rule failures', async () => {

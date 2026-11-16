@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+identities.json
+data/
+node_modules/
+web/node_modules/
+*.pem
+*.key
+*_sk

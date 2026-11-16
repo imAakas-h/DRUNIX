@@ -1,9 +1,0 @@
-{
-  "OPERATOR":    { "mspId": "Org1MSP", "certPath": "/PATH/organizations/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/signcerts", "keyPath": "/PATH/organizations/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/keystore", "peerEndpoint": "localhost:7051", "hostAlias": "peer0.org1.example.com", "tlsCertPath": "/PATH/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt" },
-  "FINANCIER_A": { "mspId": "Org1MSP", "certPath": "…/org1.example.com/users/User1@org1.example.com/msp/signcerts", "keyPath": "…/User1@org1.example.com/msp/keystore", "peerEndpoint": "localhost:7051", "hostAlias": "peer0.org1.example.com", "tlsCertPath": "…/peer0.org1.example.com/tls/ca.crt" },
-  "FINANCIER_B": { "mspId": "Org2MSP", "certPath": "…/org2.example.com/users/User1@org2.example.com/msp/signcerts", "keyPath": "…/User1@org2.example.com/msp/keystore", "peerEndpoint": "localhost:9051", "hostAlias": "peer0.org2.example.com", "tlsCertPath": "…/org2.example.com/peers/peer0.org2.example.com/tls/ca.crt" },
-  "FINANCIER_C": "same shape; a separate enrolled identity (see README: extra identities via fabric-ca). Disclosed as TEST IDENTITY.",
-  "FINANCIER_D": "same shape; separate enrolled identity",
-  "INSURER":     "same shape; separate enrolled identity",
-  "AUDITOR":     "same shape; separate enrolled identity"
-}

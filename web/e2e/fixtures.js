@@ -23,4 +23,4 @@ export async function login(page, identity, password = PASSWORD) {
   await expect(page.getByTestId('whoami')).toBeVisible();
 }
 export const logout = (page) => page.getByRole('button', { name: 'Sign out' }).click();
-export const nav = (page, name) => page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name });
+export const nav = (page, name) => page.locator('nav').getByRole('link', { name });

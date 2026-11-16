@@ -11,8 +11,28 @@ import Settlement from './pages/Settlement';
 import Exposure from './pages/Exposure';
 import Audit from './pages/Audit';
 import Network from './pages/Network';
+import Explorer from './pages/Explorer';
+import PlatformPages from './pages/PlatformPages';
 
-const PAGES = { '/overview': Overview, '/receivables': Receivables, '/transfer': Transfer, '/lab': AttackLab, '/settlement': Settlement, '/exposure': Exposure, '/audit': Audit, '/network': Network };
+const PAGES = {
+  '/overview': Overview,
+  '/explorer': Explorer,
+  '/receivables': Receivables,
+  '/transfer': Transfer,
+  '/lab': AttackLab,
+  '/settlement': Settlement,
+  '/exposure': Exposure,
+  '/audit': Audit,
+  '/network': Network,
+  '/nodes': PlatformPages,
+  '/contracts': PlatformPages,
+  '/middleware': PlatformPages,
+  '/integrations': PlatformPages,
+  '/storage': PlatformPages,
+  '/keys': PlatformPages,
+  '/insights': PlatformPages,
+  '/costs': PlatformPages,
+};
 export default function App() {
   const { identity, role } = useAuth();
   if (!identity) return <Routes><Route path="*" element={<Login />} /></Routes>;
@@ -20,7 +40,12 @@ export default function App() {
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        {allowed.map((n) => { const P = PAGES[n.to]; return <Route key={n.to} path={n.to} element={<P />} />; })}
+        <Route index element={<Navigate to="/overview" replace />} />
+        {allowed.map((n, index) => {
+          if (allowed.findIndex((item) => item.to === n.to) !== index) return null;
+          const P = PAGES[n.to];
+          return <Route key={n.to} path={n.to} element={<P />} />;
+        })}
         {allowed.some((n) => n.to === '/receivables') && <Route path="/receivables/:id" element={<ReceivableDetail />} />}
         <Route path="*" element={<Navigate to={allowed[0].to} replace />} />
       </Route>

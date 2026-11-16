@@ -4,10 +4,10 @@ const RUN = Date.now().toString(36).toUpperCase();
 const LAB = `FU-LAB-${RUN}`; const SET = `FU-SET-${RUN}`; const MAN = `FU-MAN-${RUN}`;
 const NAMES = { OPERATOR: 'Platform Operator', FINANCIER_A: 'Financier A', INSURER: 'Insurer / Guarantor', AUDITOR: 'Auditor' };
 const NAVS = {
-  OPERATOR: ['Overview', 'Receivables', 'Discount & transfer', 'Attack lab', 'Settlement', 'Insurer exposure', 'Audit timeline', 'Network'],
-  FINANCIER_A: ['Overview', 'Receivables', 'Discount & transfer', 'Audit timeline', 'Network'],
-  INSURER: ['Overview', 'Receivables', 'Insurer exposure', 'Network'],
-  AUDITOR: ['Overview', 'Receivables', 'Attack lab', 'Settlement', 'Insurer exposure', 'Audit timeline', 'Network'],
+  OPERATOR: ['Dashboard', 'Blockchain Networks', 'Blockchain Nodes', 'Smart Contract Sets', 'Middleware', 'Integration Tools', 'Storage', 'Private Keys', 'Insights', 'Resource Costs'],
+  FINANCIER_A: ['Dashboard', 'Blockchain Networks', 'Blockchain Nodes', 'Smart Contract Sets', 'Middleware', 'Integration Tools', 'Storage', 'Private Keys', 'Insights', 'Resource Costs'],
+  INSURER: ['Dashboard', 'Blockchain Networks', 'Blockchain Nodes', 'Smart Contract Sets', 'Middleware', 'Integration Tools', 'Storage', 'Private Keys', 'Insights', 'Resource Costs'],
+  AUDITOR: ['Dashboard', 'Blockchain Networks', 'Blockchain Nodes', 'Smart Contract Sets', 'Middleware', 'Integration Tools', 'Storage', 'Private Keys', 'Insights', 'Resource Costs'],
 };
 const runStep = async (page, n) => { await page.getByTestId(`run-step-${n}`).click(); await expect(page.getByTestId(`step-${n}-result`)).toBeVisible({ timeout: 20_000 }); };
 const useUnit = async (page, id) => { await page.getByLabel('Factoring unit ID').fill(id); };
@@ -23,11 +23,11 @@ test.describe('authentication and role navigation', () => {
     test(`${id}: sees exactly its navigation and cannot open other pages`, async ({ page }) => {
       await login(page, id);
       await expect(page.getByTestId('whoami')).toHaveText(NAMES[id]);
-      await expect(page.getByTestId('mode-banner')).toContainText('DEV ENGINE – NOT DRUNIX');
+      await expect(page.getByTestId('mode-banner')).toContainText('DEV MODE — NOT DRUNIX');
       const shown = await page.getByRole('navigation', { name: 'Main' }).getByRole('link').allInnerTexts();
       expect(shown.map((s) => s.trim())).toEqual(links);
       for (const l of links) { await nav(page, l).click(); await expect(page.getByRole('heading', { level: 1 })).toBeVisible(); await expect(page.getByTestId('mode-banner')).toBeVisible(); }
-      if (!links.includes('Attack lab')) { await page.goto('/lab'); await expect(page.getByRole('heading', { level: 1 })).not.toHaveText(/attack lab/i); }
+      if (!['OPERATOR', 'AUDITOR'].includes(id)) { await page.goto('/lab'); await expect(page.getByRole('heading', { level: 1 })).not.toHaveText(/attack lab/i); }
     });
   }
 });
@@ -133,7 +133,48 @@ test.describe('audit and insurer', () => {
     await page.goto('/audit'); await expect(page.getByRole('heading', { level: 1 })).not.toHaveText('Audit timeline');
   });
   test('network page reports the real mode and measured samples', async ({ page }) => {
-    await login(page, 'AUDITOR'); await nav(page, 'Network').click();
+      await login(page, 'AUDITOR'); await nav(page, 'Blockchain Networks').click();
     await expect(page.getByTestId('net-mode')).toHaveText('dev'); await expect(page.getByText(/Successful transactions measured/)).toContainText(/\d+/);
   });
 });
+
+  test.describe('blockchain network preferences', () => {
+    test('selects Hyperledger Fabric, creates a persistent demo entry, and opens its details', async ({ page }) => {
+      await login(page, 'OPERATOR');
+      await nav(page, 'Blockchain Networks').click();
+      await page.getByRole('button', { name: 'Add a Blockchain Network' }).click();
+      await expect(page.getByRole('dialog')).toContainText('Select your network preference');
+      await page.getByRole('button', { name: 'Hyperledger Fabric' }).click();
+      await expect(page.getByRole('heading', { name: 'Hyperledger Fabric' })).toBeVisible();
+      await page.locator('.preview-continue').click();
+      await expect(page.getByText(/creates a saved demonstration entry in this browser only/)).toBeVisible();
+      await page.getByLabel('Display name').fill('Fabric Acceptance Demo');
+      await page.getByRole('button', { name: 'Create demo network' }).click();
+      const row = page.getByRole('row', { name: /Fabric Acceptance Demo/ });
+      await expect(row).toContainText('Hyperledger Fabric');
+      await expect(row).toContainText('Local demo setup');
+      await expect(row).toContainText('Configured');
+      await page.reload();
+      await expect(page.getByRole('row', { name: /Fabric Acceptance Demo/ })).toBeVisible();
+      await page.getByRole('row', { name: /Fabric Acceptance Demo/ }).getByRole('button', { name: /View details/ }).click();
+      await expect(page.getByRole('dialog')).toContainText('This overview describes a local demo configuration');
+      await expect(page.getByRole('dialog')).toContainText('local UI demonstration only');
+      await page.getByRole('button', { name: 'Close dialog' }).click();
+    });
+
+    test('network layout remains usable at a narrow viewport', async ({ page }) => {
+      await login(page, 'AUDITOR');
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.getByRole('button', { name: 'Open navigation' }).click();
+      await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Blockchain Networks' })).toBeVisible();
+      await nav(page, 'Blockchain Networks').click();
+      await expect(page.getByRole('heading', { name: 'Blockchain Networks' })).toBeVisible();
+      await page.getByRole('button', { name: 'Add a Blockchain Network' }).click();
+      await expect(page.getByRole('dialog')).toBeVisible();
+      await page.getByRole('button', { name: 'Hyperledger Fabric' }).click();
+      await page.locator('.mobile-continue').click();
+      await expect(page.getByLabel('Display name')).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    });
+  });

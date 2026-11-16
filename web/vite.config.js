@@ -1,3 +1,4 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-export default defineConfig({ plugins: [react()], server: { port: 5173, proxy: { '/api': 'http://localhost:3000' } }, build: { outDir: 'dist' } });
+const apiTarget = process.env.RASID_API_TARGET || 'http://localhost:3000';
+export default defineConfig({ plugins: [react()], server: { port: 5173, proxy: { '/api': apiTarget } }, build: { outDir: 'dist' } });
